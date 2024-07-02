@@ -2,8 +2,8 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"image-watermark/domain"
+	"mime/multipart"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -11,7 +11,7 @@ import (
 
 // CarUsecase represent the car's Usecases
 type Usecase interface {
-	AddWatermark(ctx context.Context) (*interface{}, error)
+	AddWatermark(context.Context, multipart.File, domain.Request) error
 }
 
 type ResponseError struct {
@@ -23,16 +23,42 @@ type Handler struct {
 }
 
 func (h *Handler) AddWatermark(e echo.Context) error {
-	resp, err := h.Usecase.AddWatermark(e.Request().Context())
+	var req domain.Request
+	err := e.Bind(&req)
 	if err != nil {
 		return e.JSON(
-			http.StatusInternalServerError,
-			ResponseError{Message: domain.ErrInternalServerError.Error()},
+			http.StatusBadRequest,
+			ResponseError{Message: err.Error()},
+		)
+	}
+	req.Authorization = e.Request().Header.Get("Authorization")
+	file, err := e.FormFile("file")
+	if err != nil {
+		return e.JSON(
+			http.StatusBadRequest,
+			ResponseError{Message: err.Error()},
 		)
 	}
 
-	e.Response().Header().Set(echo.HeaderContentType, echo.MIMEApplicationJSONCharsetUTF8)
-	e.Response().WriteHeader(http.StatusOK)
-	return json.NewEncoder(e.Response()).Encode(resp)
+	src, err := file.Open()
+	if err != nil {
+		return e.JSON(
+			http.StatusBadRequest,
+			ResponseError{Message: err.Error()},
+		)
+	}
+	defer src.Close()
+
+	err = h.Usecase.AddWatermark(e.Request().Context(), src, req)
+	if err != nil {
+		return e.JSON(
+			http.StatusInternalServerError,
+			ResponseError{Message: err.Error()},
+		)
+	}
+
+	return e.JSON(201, map[string]string{
+		"message": "success",
+	})
 
 }
